@@ -70,17 +70,18 @@ class NewtonArray(Benchmark):
     def setup(self, vec, meth):
         if vec == 'loop':
             if meth == 'newton':
-                self.fvec = lambda f, x0, args, fprime, fprime2=None: [
+                self.fvec = lambda f, x0, args, fprime, fprime2=None, **kwargs: [
                     newton(f, x, args=(a0, a1) + args[2:], fprime=fprime)
                     for (x, a0, a1) in zip(x0, args[0], args[1])
                 ]
             elif meth == 'halley':
-                self.fvec = lambda f, x0, args, fprime, fprime2: [
-                    newton(f, x, args=(a0, a1) + args[2:], fprime=fprime, fprime2=fprime2)
+                self.fvec = lambda f, x0, args, fprime, fprime2, **kwargs: [
+                    newton(f, x, args=(a0, a1) + args[2:], fprime=fprime,
+                           fprime2=fprime2)
                     for (x, a0, a1) in zip(x0, args[0], args[1])
                 ]
             else:
-                self.fvec = lambda f, x0, args, fprime=None, fprime2=None: [
+                self.fvec = lambda f, x0, args, fprime=None, fprime2=None, **kwargs: [
                     newton(f, x, args=(a0, a1) + args[2:]) for (x, a0, a1)
                     in zip(x0, args[0], args[1])
                 ]
@@ -110,4 +111,5 @@ class NewtonArray(Benchmark):
         a1 = (np.sin(range(10)) + 1.0) * 7.0
         args = (a0, a1, 1e-09, 0.004, 10, 0.27456)
         x0 = [7.0] * 10
-        self.fvec(f, x0, args=args, fprime=f_1, fprime2=f_2)
+        self.fvec(f, x0, args=args, fprime=f_1, fprime2=f_2,
+                  array_args_idx=(0, 1))

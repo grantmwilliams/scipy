@@ -81,7 +81,7 @@ class TestBasic(object):
         a1 = (np.sin(range(10)) + 1.0) * 7.0
         args = (a0, a1, 1e-09, 0.004, 10, 0.27456)
         x0 = [7.0] * 10
-        x = zeros.newton(f1, x0, f1_1, args)
+        x = zeros.newton(f1, x0, f1_1, args, array_args_idx=(0, 1))
         x_expected = (
             6.17264965, 11.7702805, 12.2219954,
             7.11017681, 1.18151293, 0.143707955,
@@ -90,7 +90,8 @@ class TestBasic(object):
         )
         assert_allclose(x, x_expected)
         # test halley's
-        x = zeros.newton(f1, x0, f1_1, args, fprime2=f1_2)
+        x = zeros.newton(f1, x0, f1_1, args, fprime2=f1_2,
+                         array_args_idx=(0, 1))
         assert_allclose(x, x_expected)
         # test secant
         x = zeros.newton(lambda y, z: z - y ** 2, [4.0]*2, args=([15.0, 17.0],))

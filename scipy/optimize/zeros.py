@@ -212,89 +212,100 @@ def newton(func, x0, fprime=None, args=(), tol=1.48e-8, maxiter=50,
 
 
 def _array_newton(func, x0, fprime, args, tol, maxiter, fprime2,
-                  failure_idx_flag=False):
+                  failure_idx_flag=False, array_args_idx=None):
     """
     A vectorized version of Newton, Halley, and secant methods for arrays. Do
     not use this method directly. This method is called from :func:`newton`
     when ``np.isscalar(x0)`` is true. For docstring, see :func:`newton`.
     """
-    p0 = np.asarray(x0)  # convert to ndarray
-    failures = np.ones(p0.shape, dtype=bool)  # at start, nothing converged
+    x = np.asarray(x0)
+    array_args = np.zeros(len(args), dtype=bool)  # assume no extra array args
+    if array_args_idx is not None:
+        array_args[list(array_args_idx)] = True
+    active = np.ones_like(x, dtype=bool)  # only calculate active items
+    zero_der = np.zeros_like(x, dtype=bool)
     if fprime is not None:
         # Newton-Raphson method
         for iteration in range(maxiter):
-            myargs = (p0,) + args
-            fder = np.asarray(fprime(*myargs))  # convert to ndarray
-            zero_der = (fder == 0)
-            if zero_der.all():
-                msg = "all derivatives were zero."
-                warnings.warn(msg, RuntimeWarning)
-                if failure_idx_flag:
-                    p0 = (p0, failures, zero_der)
-                return p0
-            fval = np.asarray(func(*myargs))  # convert to ndarray
+            myargs = [arg[active] if array_arg else arg for arg, array_arg
+                      in zip(args, array_args)]
+            fder = np.asarray(fprime(x[active], *myargs))
+            # Remove zero derivative entries from active set.
+            nz_der = (fder != 0)  # indices of non-zero derivatives
+            zero_der[active] |= ~nz_der  # update zero derivatives
+            active[active] &= nz_der  # remove zero-derivatives from active
+            fder = fder[nz_der]  # update fder
+            if not active.any():
+                break
+            # update active array arguments
+            myargs = [arg[active] if array_arg else arg for arg, array_arg
+                      in zip(args, array_args)]
+            fval = np.asarray(func(x[active], *myargs))
             newton_step = fval / fder
-            fder2 = 0 if fprime2 is None else np.asarray(fprime2(*myargs))
-            # if fder is zero, warns "RuntimeWarning: divide by zero"
-            p = p0 - newton_step / (1.0 - 0.5 * newton_step * fder2 / fder)
-            p = np.where(zero_der, p0, p)  # where zero der, use last guess
-            failures = np.abs(p - p0) >= tol  # items not yet converged
-            # stop iterating if there aren't any failures, not incl zero der
-            if not failures[~zero_der].any():
-                if zero_der.any():
-                    msg = "some derivatives were zero."
-                    warnings.warn(msg, RuntimeWarning)
-                if failure_idx_flag:
-                    p = (p, failures, zero_der)
-                return p
-            p0 = p
+            if fprime2 is None:
+                deltax = newton_step
+            else:
+                fder2 = np.asarray(fprime2(x[active], *myargs))
+                deltax = newton_step / (1.0 - 0.5 * newton_step * fder2 / fder)
+            x[active] -= deltax
+            # Remove converged entries from active set.
+            active[active] &= np.abs(deltax) >= tol
+            if not active.any():
+                break
+        if zero_der.any():
+            all_or_some = 'all' if zero_der.all() else 'some'
+            msg = "%s derivatives were zero" % all_or_some
+            warnings.warn(msg, RuntimeWarning)
+        if failure_idx_flag:
+            x = x, ~active, zero_der
+        return x
     else:
         # Secant method
         dx = np.finfo(float).eps**0.33
-        dp = np.where(p0 >= 0, dx, -dx)
-        p1 = p0 * (1 + dx) + dp
-        q0 = np.asarray(func(*((p0,) + args)))
+        dp = np.where(x >= 0, dx, -dx)
+        p1 = x * (1 + dx) + dp
+        q0 = np.asarray(func(*((x,) + args)))
         q1 = np.asarray(func(*((p1,) + args)))
         for iteration in range(maxiter):
             zero_der = (q1 == q0)
-            nonzero_dp = (p1 != p0)
+            nonzero_dp = (p1 != x)
             if zero_der.all():
                 if nonzero_dp.any():
                     rms = np.sqrt(
-                        sum((p1[nonzero_dp] - p0[nonzero_dp])**2)
+                        sum((p1[nonzero_dp] - x[nonzero_dp])**2)
                     )
                     msg = "RMS of %s where callback isn't zero" % rms
                     warnings.warn(msg, RuntimeWarning)
-                p_avg = (p1 + p0) / 2.0
+                p_avg = (p1 + x) / 2.0
                 if failure_idx_flag:
-                    p_avg = (p_avg, failures, zero_der)
+                    p_avg = (p_avg, active, zero_der)
                 return p_avg
-            p = p1 - q1*(p1 - p0)/(q1 - q0)
-            p = np.where(zero_der, (p1 + p0)/2.0, p)
-            failures = np.abs(p - p1) >= tol  # not yet converged
+            p = p1 - q1*(p1 - x)/(q1 - q0)
+            p = np.where(zero_der, (p1 + x)/2.0, p)
+            active = np.abs(p - p1) >= tol  # not yet converged
             # stop iterating if there aren't any failures, not incl zero der
-            if not failures[~zero_der].any():
+            if not active[~zero_der].any():
                 # non-zero dp, but infinite newton step
                 zero_der_nz_dp = (zero_der & nonzero_dp)
                 if zero_der_nz_dp.any():
                     rms = np.sqrt(
-                        sum((p1[zero_der_nz_dp] - p0[zero_der_nz_dp])**2)
+                        sum((p1[zero_der_nz_dp] - x[zero_der_nz_dp])**2)
                     )
                     msg = "RMS of %s where callback isn't zero" % rms
                     warnings.warn(msg, RuntimeWarning)
                 if failure_idx_flag:
-                    p = (p, failures, zero_der)
+                    p = (p, active, zero_der)
                 return p
-            p0 = p1
+            x = p1
             q0 = q1
             p1 = p
             q1 = np.asarray(func(*((p1,) + args)))
     msg = "Failed to converge after %d iterations, value is %s" % (maxiter, p)
-    if failures.all():
+    if active.all():
         raise RuntimeError(msg)
     warnings.warn(msg, RuntimeWarning)
     if failure_idx_flag:
-        p = (p, failures, zero_der)
+        p = (p, active, zero_der)
     return p
 
 
